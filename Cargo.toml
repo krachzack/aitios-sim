@@ -1,0 +1,20 @@
+[package]
+name = "aitios-sim"
+version = "0.1.0"
+authors = ["krachzack <hello@phstadler.com>"]
+
+[features]
+default = []
+debug_tracing = []
+
+[dependencies]
+log = "0.4"
+aitios-geom = { git = "https://github.com/krachzack/aitios-geom.git" }
+aitios-sampling = { git = "https://github.com/krachzack/aitios-sampling.git" }
+aitios-surf = { git = "https://github.com/krachzack/aitios-surf.git" }
+aitios-spatial = { git = "https://github.com/krachzack/aitios-spatial.git" }
+aitios-scene = { git = "https://github.com/krachzack/aitios-scene.git" }
+rand = "0.4"
+
+[dev-dependencies]
+aitios-asset = { git = "https://github.com/krachzack/aitios-asset.git" }
