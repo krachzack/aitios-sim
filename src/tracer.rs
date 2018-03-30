@@ -18,6 +18,10 @@ enum TracingEvent {
 }
 #[cfg(feature = "debug_tracing")]
 const MAX_TRACING_EVENT_COUNT: usize = 600;
+/// Delta to move before checking for intersections. This avoids rays
+/// intersecting the triangle they originated from due to floating point
+/// imprecision.
+const SELF_INTERSECTION_EPSILON : f32 = 0.0001;
 
 pub struct Tracer {
     geometry: Octree<TupleTriangle<Vertex>>,
@@ -72,7 +76,7 @@ impl Tracer {
         let gravity_acceleration = Vec3::new(0.0, -gravity_mag, 0.0);
         let takeoff_velocity_mag = (2.0 * gravity_mag * upward_parabola_height).sqrt();
         let mut velocity = takeoff_velocity_mag * direction;
-        let mut position = from + direction * 0.0000001;
+        let mut position = from + direction * SELF_INTERSECTION_EPSILON;
 
         let scene_bounds = {
             let mut bounds = self.geometry.bounds();
@@ -119,7 +123,7 @@ impl Tracer {
         let upward_epsilon = flow_distance * 1.3;
 
         // First a little bias to avoid self-intersection
-        let from = from + 0.0000001 * up;
+        let from = from + SELF_INTERSECTION_EPSILON * up;
         let to = from + tangential_direction * flow_distance;
 
         // First, move up for flow
@@ -273,7 +277,7 @@ mod test {
     extern crate aitios_asset;
 
     use super::*;
-    use geom::{Position, Normal, Interpolation, TangentSpace};
+    use geom::{Position, Normal, Interpolation};
     use scene::Mesh;
 
     #[test]
@@ -349,25 +353,17 @@ mod test {
 
         let centroid = some_tri.centroid();
         let normal = some_tri.interpolate_at(centroid, |v| v.normal());
-        println!("{:?}", centroid);
         let (vertex_a, _, _) = some_tri.positions();
-        let above_centroid = centroid + normal * 0.1;
 
         let to_vertex_a_dist = vertex_a.distance(centroid);
         let flow_direction = (vertex_a - centroid) / to_vertex_a_dist;
-        let expected_intersection_point = 0.9 * vertex_a + 0.1 * centroid;
+        let expected_intersection_point = centroid + flow_direction * 0.9 * to_vertex_a_dist;
 
-        let hit = tracer.trace_flow(above_centroid, normal, flow_direction, 0.9 * to_vertex_a_dist);
+        let hit = tracer.trace_flow(centroid, normal, flow_direction, 0.9 * to_vertex_a_dist);
 
         assert!(hit.is_some(), "Expected to hit known vertex");
 
-        // Note 2.5 is a lot, but I don't know how distances are calculated here
-        // See how two almost equal vectors fail with max distance 1.5
-        // thread 'tracer::test::test_flow_on_flat_surface_with_offset' panicked at 'assert_relative_eq!(hit, expected_intersection_point, max_relative = 1.5)
-        // left = Vector3 [0.014623523, 17.069817, -0.23249435]
-        // right = Vector3 [-0.007804878, 17.04433, -0.30152005]
-
         let hit = hit.unwrap().intersection_point;
-        assert_relative_eq!(hit, expected_intersection_point, max_relative = 2.5);
+        assert!(hit.distance(expected_intersection_point) < 0.0001, "Flow tracing ended up in unexpected place: {:?}\n expecting: {:?}", hit, expected_intersection_point);
     }
 }
