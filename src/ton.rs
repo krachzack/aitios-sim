@@ -215,6 +215,11 @@ impl TonSourceBuilder {
         self
     }
 
+    pub fn flow_direction_static(mut self, flow_direction: Vec3) -> TonSourceBuilder {
+        self.source.proto_ton.flow_direction = FlowDirection::Static(flow_direction);
+        self
+    }
+
     pub fn build(self) -> TonSource {
         assert_eq!(
             self.source.proto_ton.pickup_rates.len(),
