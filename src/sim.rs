@@ -1,8 +1,9 @@
 use ::tracer::{Tracer, Hit};
 use ::surfel_data::SurfelData;
 use ::surfel_rule::SurfelRule;
-use ::ton::{Ton, TonSource, TonEmission};
+use ::ton::{Ton, TonSource, TonEmission, FlowDirection};
 use geom::{Vertex, TupleTriangle, TangentSpace};
+use geom::prelude::*;
 use surf;
 use surf::Surfel;
 use sampling::{Uniform, UnitHemisphere};
@@ -159,7 +160,24 @@ impl Simulation {
             MotionType::Flow => {
                 let up = triangle.normal();
                 // TODO project Y unit vector (configurable)
-                let flow_direction = triangle.project_onto_tangential_plane(incoming_direction);
+                // REVIEW maybe project_onto_tangential_plane should return an option for the perpendicular case
+                let mut flow_direction = triangle.project_onto_tangential_plane(match &ton.flow_direction {
+                    &FlowDirection::Incident => incoming_direction,
+                    &FlowDirection::Static(global_flow_direction) => global_flow_direction
+                });
+
+                // If projected flow direction is zero, it is the result of a failed attempt to project
+                // a perpendicular incoming direction, as a fallback, just project a diffusely sampled
+                // vector (until a non-zero projection turns up)
+                if flow_direction.is_zero() {
+                    flow_direction = loop {
+                        let fallback_flow_direction = triangle.project_onto_tangential_plane(triangle.uniform());
+                        if !fallback_flow_direction.is_zero() {
+                            break fallback_flow_direction;
+                        }
+                    };
+                }
+
                 tracer.trace_flow(intersection_point, up, flow_direction, ton.flow_distance)
             },
             MotionType::Settled => unreachable!()
