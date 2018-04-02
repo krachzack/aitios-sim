@@ -226,7 +226,9 @@ impl Simulation {
         }
     }
 
-    /// Makes the ton pick up material from a surfel it is interacting with
+    /// Makes the ton pick up material from a surfel it is interacting with.
+    /// The pick up rate can also be negative, the ton then deposits material on contact
+    /// instead of accumulating.
     fn absorb(ton: &mut Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {
         assert_eq!(
             interacting_surfel.substances.len(), ton.substances.len(),
@@ -245,7 +247,12 @@ impl Simulation {
         for (ref pickup_rate, (ref mut ton_material, ref mut surfel_material)) in material_transports {
             // pickup rate gets equally distributed between all interacting surfels
             let pickup_rate = count_weight * *pickup_rate;
-            let transport_amount = pickup_rate * **surfel_material;
+
+            let transport_amount = pickup_rate * if pickup_rate >= 0.0 {
+                **surfel_material
+            } else {
+                **ton_material
+            };
 
             **surfel_material = (**surfel_material - transport_amount).max(0.0).min(1.0);
             **ton_material = (**ton_material + transport_amount).max(0.0).min(1.0);
