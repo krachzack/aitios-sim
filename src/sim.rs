@@ -121,7 +121,7 @@ impl Simulation {
         // Depending on the interaction radius and the complexity of the
         // surface in the interaction radius range, bleeding may still occur.
         let hit_tri_normal = hit.triangle.normal();
-        surfel_idxs.retain(|i| {
+        surfel_idxs.retain(|&i| {
             let surfel_normal  = surf.samples[i].vertex().normal;
             hit_tri_normal.dot(surfel_normal) > 0.0
         });
