@@ -114,6 +114,18 @@ impl Simulation {
             ton.interaction_radius
         );
 
+        // Throw out all surfels where normals are rotated by more than 90°
+        // relative to the normal of the hit triangle.
+        // This aims to minimize surfels from the other side of thin surfaces,
+        // being affected from hits to the other side.
+        // Depending on the interaction radius and the complexity of the
+        // surface in the interaction radius range, bleeding may still occur.
+        let hit_tri_normal = hit.triangle.normal();
+        surfel_idxs.retain(|i| {
+            let surfel_normal  = surf.samples[i].vertex().normal;
+            hit_tri_normal.dot(surfel_normal) > 0.0
+        });
+
         if surfel_idxs.len() == 0 {
             warn!("Ton hit a surface but did not interact with any surfels, try higher interaction radius, interacting with nearest surfel instead.");
             surfel_idxs.push(surf.nearest_idx(hit.intersection_point));
