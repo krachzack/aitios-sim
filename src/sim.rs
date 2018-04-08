@@ -49,7 +49,7 @@ impl Simulation {
 
         for src in sources {
             for _ in 0..src.emission_count() {
-                Self::propagate(surface, tracer, src.emit_one());
+                Self::emit(surface, tracer, src.emit_one());
             }
         }
 
@@ -90,6 +90,7 @@ impl Simulation {
     }
 
     fn perform_rule(substances: &mut Vec<f32>, rule: &SurfelRule) {
+        // REVIEW should the substances be clamped?
         match rule {
             &SurfelRule::Deteriorate { substance_idx, factor } =>
                 substances[substance_idx] += factor * substances[substance_idx],
@@ -102,7 +103,7 @@ impl Simulation {
         }
     }
 
-    fn propagate(surf: &mut Surface, tracer: &Tracer, mut emission: TonEmission) {
+    fn emit(surf: &mut Surface, tracer: &Tracer, mut emission: TonEmission) {
         if let Some(hit) = tracer.trace_straight(emission.origin, emission.direction) {
             Self::interact(surf, tracer, &mut emission.ton, hit);
         }
@@ -266,8 +267,8 @@ impl Simulation {
                 **ton_material
             };
 
-            **surfel_material = (**surfel_material - transport_amount).max(0.0).min(1.0);
-            **ton_material = (**ton_material + transport_amount).max(0.0).min(1.0);
+            **surfel_material = (**surfel_material - transport_amount).max(0.0);
+            **ton_material = (**ton_material + transport_amount).max(0.0);
         }
     }
 
@@ -292,7 +293,7 @@ impl Simulation {
             // pickup rate gets equally distributed between all interacting surfels
             let deposition_rate = count_weight * *deposition_rate;
             let transport_amount = deposition_rate * **ton_material;
-            **surfel_material = (**surfel_material + transport_amount).max(0.0).min(1.0);
+            **surfel_material = (**surfel_material + transport_amount).max(0.0);
         }
     }
 }
