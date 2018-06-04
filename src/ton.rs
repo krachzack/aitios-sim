@@ -4,6 +4,7 @@ use sampling::{TriangleBins, UnitSphere, UnitHemisphere, Uniform};
 use scene::{Entity, Mesh};
 use std::f32::EPSILON;
 use std::iter;
+use std::ops::Deref;
 
 #[derive(Debug, Clone)]
 pub struct Ton {
@@ -73,7 +74,7 @@ pub struct TonEmission {
 
 impl TonSource {
 
-    pub fn emit_one(&self) -> TonEmission {
+    fn emit_one(&self) -> TonEmission {
         let ton = self.proto_ton.clone();
         let (origin, direction) = match &self.shape {
             &Shape::Point { position } => (
@@ -110,10 +111,10 @@ impl TonSource {
         TonEmission { origin, direction, ton }
     }
 
-    pub fn emit<'a>(&'a self) -> Box<Iterator<Item=TonEmission> + 'a> {
-        Box::new(iter::repeat(self)
+    pub fn emit<'a>(&'a self) -> impl Iterator<Item = TonEmission> + 'a {
+        iter::repeat(self)
+            .take(self.emission_count)
             .map(Self::emit_one)
-            .take(self.emission_count as usize))
     }
 
     pub fn emission_count(&self) -> usize {
@@ -156,8 +157,9 @@ impl TonSourceBuilder {
         self.mesh_shaped(&entity.mesh, diffuse)
     }
 
-    pub fn mesh_shaped<'a, M, V>(mut self, mesh: &'a M, diffuse: bool) -> TonSourceBuilder
-        where M : Mesh<'a, Vertex = V>,
+    pub fn mesh_shaped<'a, T, M, V>(mut self, mesh: &'a T, diffuse: bool) -> TonSourceBuilder
+        where T : Deref<Target = M>,
+            M : Mesh<'a, Vertex = V> + 'a,
             V : Position,
             TriangleBins<TupleTriangle<Vertex>>: iter::FromIterator<TupleTriangle<V>>
     {

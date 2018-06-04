@@ -47,11 +47,12 @@ impl Simulation {
         let rules = &self.surfel_rules;
         let surface = &mut self.surface;
 
-        for src in sources {
-            for _ in 0..src.emission_count() {
-                Self::emit(surface, tracer, src.emit_one());
-            }
-        }
+        // TODO change reflectance properties based on gammaton map from last iteration
+        //      to increase rusting rate in rusty areas
+
+        sources.iter()
+            .flat_map(TonSource::emit)
+            .for_each(|e| Self::emit(surface, tracer, e));
 
         Self::perform_rules(surface, rules);
     }
