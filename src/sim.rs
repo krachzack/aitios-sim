@@ -94,12 +94,12 @@ impl Simulation {
         // REVIEW should the substances be clamped?
         match rule {
             &SurfelRule::Deteriorate { substance_idx, factor } =>
-                substances[substance_idx] += factor * substances[substance_idx],
+                substances[substance_idx] = ((1.0 + factor) * substances[substance_idx]).max(0.0),
 
             &SurfelRule::Transfer { source_substance_idx, target_substance_idx, factor } => {
                 let transport_amount = factor * substances[source_substance_idx];
-                substances[source_substance_idx] -= transport_amount;
-                substances[target_substance_idx] += transport_amount;
+                substances[source_substance_idx] = (substances[source_substance_idx] - transport_amount).max(0.0);
+                substances[target_substance_idx] = (substances[target_substance_idx] + transport_amount).max(0.0);
             }
         }
     }
