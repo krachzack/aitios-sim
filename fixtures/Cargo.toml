@@ -1,0 +1,10 @@
+[package]
+name = "fixtures"
+version = "0.1.0"
+authors = ["krachzack <hello@phstadler.com>"]
+
+[dependencies]
+aitios-sim = { path = "..", features = [ "export_tracer" ] }
+aitios-asset = { git = "https://github.com/krachzack/aitios-asset.git" }
+aitios-surf = { git = "https://github.com/krachzack/aitios-surf.git" }
+aitios-scene = { git = "https://github.com/krachzack/aitios-scene.git" }

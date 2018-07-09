@@ -6,6 +6,7 @@ authors = ["krachzack <hello@phstadler.com>"]
 [features]
 default = []
 debug_tracing = []
+export_tracer = []
 
 [dependencies]
 log = "0.4"
@@ -18,3 +19,4 @@ rand = "0.4"
 
 [dev-dependencies]
 aitios-asset = { git = "https://github.com/krachzack/aitios-asset.git" }
+fixtures = { path = "fixtures" }

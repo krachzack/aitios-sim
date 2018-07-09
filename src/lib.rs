@@ -18,3 +18,6 @@ pub use sim::Simulation;
 pub use ton::{TonSource, TonSourceBuilder};
 pub use surfel_data::SurfelData;
 pub use surfel_rule::SurfelRule;
+
+#[cfg(feature = "export_tracer")]
+pub use tracer::*;
