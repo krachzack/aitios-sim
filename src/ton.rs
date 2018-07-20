@@ -74,7 +74,7 @@ pub struct TonEmission {
 
 impl TonSource {
 
-    fn emit_one(&self) -> TonEmission {
+    pub fn emit_one(&self) -> TonEmission {
         let ton = self.proto_ton.clone();
         let (origin, direction) = match &self.shape {
             &Shape::Point { position } => (

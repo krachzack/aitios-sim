@@ -7,6 +7,7 @@ extern crate aitios_surf as surf;
 extern crate rand;
 #[macro_use]
 extern crate log;
+extern crate rayon;
 
 mod sim;
 mod surfel_data;

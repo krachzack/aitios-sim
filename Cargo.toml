@@ -10,6 +10,7 @@ export_tracer = []
 
 [dependencies]
 log = "0.4"
+rayon = "1.0.2"
 aitios-geom = { git = "https://github.com/krachzack/aitios-geom.git" }
 aitios-sampling = { git = "https://github.com/krachzack/aitios-sampling.git" }
 aitios-surf = { git = "https://github.com/krachzack/aitios-surf.git" }

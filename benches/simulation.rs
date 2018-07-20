@@ -5,7 +5,7 @@ extern crate fixtures;
 
 use fixtures::venus::make_simulation;
 
-#[bench]
+/*#[bench]
 fn simulate_iteration_with_1_ton(b: &mut test::Bencher) {
     let mut simulation = make_simulation(1);
 
@@ -23,7 +23,7 @@ fn simulate_iteration_with_1000_tons(b: &mut test::Bencher) {
         simulation.run();
         simulation.surfel_count()
     })
-}
+}*/
 
 #[bench]
 fn simulate_iteration_with_10_000_tons(b: &mut test::Bencher) {
@@ -31,6 +31,16 @@ fn simulate_iteration_with_10_000_tons(b: &mut test::Bencher) {
 
     b.iter(move || {
         simulation.run();
+        simulation.surfel_count()
+    })
+}
+
+#[bench]
+fn simulate_iteration_with_10_000_tons_parallelism(b: &mut test::Bencher) {
+    let mut simulation = make_simulation(10000);
+
+    b.iter(move || {
+        simulation.run_fast();
         simulation.surfel_count()
     })
 }

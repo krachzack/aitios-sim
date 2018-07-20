@@ -2,15 +2,17 @@ use ::tracer::{Tracer, Hit};
 use ::surfel_data::SurfelData;
 use ::surfel_rule::SurfelRule;
 use ::ton::{Ton, TonSource, TonEmission, FlowDirection};
-use geom::{Vertex, TupleTriangle, TangentSpace};
+use geom::{Vec3, Vertex, TupleTriangle, TangentSpace};
 use geom::prelude::*;
 use surf;
 use surf::Surfel;
 use sampling::{Uniform, UnitHemisphere};
 use rand;
 use rand::Rng;
+use rayon::prelude::*;
 
 type Surface = surf::Surface<Surfel<Vertex, SurfelData>>;
+type Tri = TupleTriangle<Vertex>;
 
 pub struct Simulation {
     sources: Vec<TonSource>,
@@ -55,6 +57,133 @@ impl Simulation {
             .for_each(|e| Self::emit(surface, tracer, e));
 
         Self::perform_rules(surface, rules);
+    }
+
+    pub fn run_fast(&mut self) {
+        let mut hits = {
+            let mut emissions : Vec<TonEmission> = Vec::with_capacity(
+                self.sources.iter().map(TonSource::emission_count).sum()
+            );
+
+            // Note: emissions could be in any order, not really predictable
+            for source in &self.sources {
+                (0..source.emission_count())
+                    .into_par_iter()
+                    .map(|_| source.emit_one())
+                    .collect_into_vec(&mut emissions);
+            }
+
+            // Note: again, the hits are collected in any order
+            
+
+            // Start off tracing with a straight emission from the source
+            let hits = self.initial_hits(emissions);
+            hits
+        };
+
+        // TODO add a max_bounces
+        while !hits.is_empty() {
+            hits = self.trace_deepen(hits);
+        }
+
+        Self::perform_rules(&mut self.surface, &self.surfel_rules);
+    }
+
+    fn initial_hits(&self, emissions: Vec<TonEmission>) -> Vec<(Ton, Vec3, Vec3, Tri)> {
+        emissions.into_par_iter()
+            .filter_map(|e| self.tracer
+                .trace_straight(e.origin, e.direction)
+                .map(|h| (e.ton, h.intersection_point, h.incoming_direction, h.triangle.clone()))
+            )
+            .collect()
+    }
+
+    /// Deepens the tracing another layer
+    fn trace_deepen(&mut self, mut hits: Vec<(Ton, Vec3, Vec3, Tri)>) -> Vec<(Ton, Vec3, Vec3, Tri)> {
+        // DEBUG for now, only parallelize the first level to see how this works out
+        /*for (mut ton, intersection_point, incoming_direction, hit_tri) in hits.into_iter() {
+            Self::interact(&mut self.surface, &self.tracer, &mut ton, intersection_point, incoming_direction, hit_tri);
+        }*/
+        // Interaction selection can be parallel
+        let interaction_info : Vec<(MotionType, Vec<usize>)> = hits.par_iter()
+            .map(|h| Self::select_interaction_idxs_and_next_motion_type(h, &self.surface))
+            .collect();
+
+        // Deterioration can be parallel
+        hits.par_iter_mut()
+            .zip(interaction_info.par_iter())
+            .for_each(|(ref mut hit, motion_and_idx)| Self::deteriorate_fast(hit, &motion_and_idx.1, &self.surface));
+
+        // Sequentially exchange substances to avoid race condition
+        for (hit, interaction_info) in hits.iter_mut().zip(interaction_info.iter()) {
+            let (ton, _, _, _) = hit;
+            let (next_motion_type, surfel_idxs) = interaction_info;
+            let count_weight = (surfel_idxs.len() as f32).recip();
+
+            match next_motion_type {
+                // settle substance exchange
+                MotionType::Settled => {
+                    for idx in surfel_idxs {
+                        Self::deposit(ton, self.surface.samples[*idx].data_mut(), count_weight);
+                    }
+                },
+                // non-settle substance exchange
+                _ => {
+                    for idx in surfel_idxs {
+                        Self::absorb(ton, self.surface.samples[*idx].data_mut(), count_weight);
+                    }
+                }
+            }
+        }
+
+        // Move hits to next hit point, if any, and return new hits with settled
+        // tons filtered out.
+        hits.into_par_iter()
+            .zip(interaction_info)
+            .filter_map(|((ton, intersection, incoming, triangle), (motion_type, _))|
+                Self::next_hit(
+                    &self.tracer,
+                    &ton,
+                    intersection,
+                    incoming,
+                    &triangle,
+                    motion_type
+                ).map(move |h| {
+                    (ton, h.intersection_point, h.incoming_direction, h.triangle.clone())
+                })
+            )
+            .collect()
+    }
+
+    fn select_interaction_idxs_and_next_motion_type((ton, intersection_point, _, hit_tri): &(Ton, Vec3, Vec3, Tri), surf: &Surface) -> (MotionType, Vec<usize>) {
+        let mut interaction_info = surf.find_within_sphere_indexes(
+            *intersection_point,
+            ton.interaction_radius
+        );
+
+        // Throw out all surfels where normals are rotated by more than 90°
+        // relative to the normal of the hit triangle.
+        // This aims to minimize surfels from the other side of thin surfaces,
+        // being affected from hits to the other side.
+        // Depending on the interaction radius and the complexity of the
+        // surface in the interaction radius range, bleeding may still occur.
+        let hit_tri_normal = hit_tri.normal();
+        interaction_info.retain(|&i| {
+            let surfel_normal  = surf.samples[i].vertex().normal;
+            hit_tri_normal.dot(surfel_normal) > 0.0
+        });
+
+        if interaction_info.len() == 0 {
+            warn!("Ton hit a surface but did not interact with any surfels, try higher interaction radius, interacting with nearest surfel instead.");
+            interaction_info.push(surf.nearest_idx(*intersection_point));
+        }
+
+        // FIXME the randomness depends on order, maybe re-seed here
+        (Self::select_motion_type(ton), interaction_info)
+    }
+
+    fn deteriorate_fast((ref mut ton, _, _, _): &mut (Ton, Vec3, Vec3, Tri), surfel_idxs: &[usize], surf: &Surface) {
+        Self::deteriorate(ton, surf.samples[surfel_idxs[0]].data()); 
     }
 
     pub fn surface(&self) -> &Surface {
@@ -106,13 +235,13 @@ impl Simulation {
 
     fn emit(surf: &mut Surface, tracer: &Tracer, mut emission: TonEmission) {
         if let Some(hit) = tracer.trace_straight(emission.origin, emission.direction) {
-            Self::interact(surf, tracer, &mut emission.ton, hit);
+            Self::interact(surf, tracer, &mut emission.ton, hit.intersection_point, hit.incoming_direction, hit.triangle.clone());
         }
     }
 
-    fn interact(surf: &mut Surface, tracer: &Tracer, ton: &mut Ton, hit: Hit) {
+    fn interact(surf: &mut Surface, tracer: &Tracer, ton: &mut Ton, intersection_point: Vec3, incoming_direction: Vec3, hit_tri: Tri) {
         let mut surfel_idxs = surf.find_within_sphere_indexes(
-            hit.intersection_point,
+            intersection_point,
             ton.interaction_radius
         );
 
@@ -122,7 +251,7 @@ impl Simulation {
         // being affected from hits to the other side.
         // Depending on the interaction radius and the complexity of the
         // surface in the interaction radius range, bleeding may still occur.
-        let hit_tri_normal = hit.triangle.normal();
+        let hit_tri_normal = hit_tri.normal();
         surfel_idxs.retain(|&i| {
             let surfel_normal  = surf.samples[i].vertex().normal;
             hit_tri_normal.dot(surfel_normal) > 0.0
@@ -130,7 +259,7 @@ impl Simulation {
 
         if surfel_idxs.len() == 0 {
             warn!("Ton hit a surface but did not interact with any surfels, try higher interaction radius, interacting with nearest surfel instead.");
-            surfel_idxs.push(surf.nearest_idx(hit.intersection_point));
+            surfel_idxs.push(surf.nearest_idx(intersection_point));
         }
 
         let next_motion_type = Self::select_motion_type(ton);
@@ -149,14 +278,20 @@ impl Simulation {
                 Self::absorb(ton, surf.samples[idx].data_mut(), count_weight);
             }
 
-            Self::bounce(surf, tracer, ton, hit, next_motion_type);
+            Self::bounce(surf, tracer, ton, intersection_point, incoming_direction, &hit_tri, next_motion_type);
         }
     }
 
-    fn bounce(surf: &mut Surface, tracer: &Tracer, ton: &mut Ton, hit: Hit, motion_type: MotionType) {
-        let Hit { intersection_point, triangle, incoming_direction } = hit;
+    fn bounce(surf: &mut Surface, tracer: &Tracer, ton: &mut Ton, intersection_point: Vec3, incoming_direction: Vec3, triangle: &Tri, motion_type: MotionType) {
+        // REVIEW Some if did not fly out of scene without hitting anything.
+        //        In the none case, the material is lost. Is this ok?
+        if let Some(hit) = Self::next_hit(tracer, ton, intersection_point, incoming_direction, triangle, motion_type) {
+            Self::interact(surf, tracer, ton, hit.intersection_point, hit.incoming_direction, hit.triangle.clone());
+        }
+    }
 
-        let hit = match motion_type {
+    fn next_hit<'a, 'b, 'c>(tracer: &'a Tracer, ton: &'b Ton, intersection_point: Vec3, incoming_direction: Vec3, triangle: &'c Tri, motion_type: MotionType) -> Option<Hit<'a>> {
+        match motion_type {
             MotionType::Straight => {
                 // Regard surface as completely diffuse:
                 // Uniformly sample upper Z hemisphere and transform to world space
@@ -194,13 +329,7 @@ impl Simulation {
 
                 tracer.trace_flow(intersection_point, up, flow_direction, ton.flow_distance)
             },
-            MotionType::Settled => unreachable!()
-        };
-
-        // REVIEW Some if did not fly out of scene without hitting anything.
-        //        In the none case, the material is lost. Is this ok?
-        if let Some(hit) = hit {
-            Self::interact(surf, tracer, ton, hit);
+            MotionType::Settled => None
         }
     }
 
