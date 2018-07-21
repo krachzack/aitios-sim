@@ -1,11 +1,11 @@
 #![feature(test)]
 
-extern crate test;
-extern crate fixtures;
 extern crate aitios_geom;
+extern crate fixtures;
+extern crate test;
 
+use aitios_geom::{TangentSpace, Vec3};
 use fixtures::venus::make_tracer;
-use aitios_geom::{Vec3, TangentSpace};
 
 #[bench]
 fn trace_straight(b: &mut test::Bencher) {

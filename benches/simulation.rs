@@ -1,7 +1,7 @@
 #![feature(test)]
 
-extern crate test;
 extern crate fixtures;
+extern crate test;
 
 use fixtures::venus::make_simulation;
 

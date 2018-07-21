@@ -1,28 +1,28 @@
-use ::tracer::{Tracer, Hit};
-use ::surfel_data::SurfelData;
-use ::surfel_rule::SurfelRule;
-use ::ton::{Ton, TonSource, FlowDirection};
-use geom::{Vec3, Vertex, TupleTriangle, TangentSpace};
 use geom::prelude::*;
-use surf;
-use surf::Surfel;
-use sampling::{Uniform, UnitHemisphere};
+use geom::{TangentSpace, TupleTriangle, Vec3, Vertex};
 use rand;
 use rand::Rng;
 use rayon::prelude::*;
+use sampling::{Uniform, UnitHemisphere};
+use surf;
+use surf::Surfel;
+use surfel_data::SurfelData;
+use surfel_rule::SurfelRule;
+use ton::{FlowDirection, Ton, TonSource};
+use tracer::{Hit, Tracer};
 
 type Surface = surf::Surface<Surfel<Vertex, SurfelData>>;
 type Tri = TupleTriangle<Vertex>;
 
 // Cut tracing early after this many bounces and leak materials in the tons
-const MAX_BOUNCES : usize = 128;
+const MAX_BOUNCES: usize = 128;
 
 pub struct Simulation {
     sources: Vec<TonSource>,
     tracer: Tracer,
     surface: Surface,
     /// Global surfel rules for all surfels
-    surfel_rules: Vec<SurfelRule>
+    surfel_rules: Vec<SurfelRule>,
 }
 
 #[derive(PartialEq, Copy, Clone)]
@@ -30,18 +30,24 @@ enum MotionType {
     Straight,
     Parabolic,
     Flow,
-    Settled
+    Settled,
 }
 
 impl Simulation {
-    pub fn new<I>(sources: Vec<TonSource>, triangles: I, surface: Surface, surfel_rules: Vec<SurfelRule>) -> Self
-        where I : IntoIterator<Item = TupleTriangle<Vertex>>
+    pub fn new<I>(
+        sources: Vec<TonSource>,
+        triangles: I,
+        surface: Surface,
+        surfel_rules: Vec<SurfelRule>,
+    ) -> Self
+    where
+        I: IntoIterator<Item = TupleTriangle<Vertex>>,
     {
         Simulation {
             sources,
             surface,
             tracer: Tracer::new(triangles),
-            surfel_rules
+            surfel_rules,
         }
     }
 
@@ -76,10 +82,16 @@ impl Simulation {
                 (0..source.emission_count())
                     .into_par_iter()
                     .map(|_| source.emit_one())
-                    .filter_map(|e| tracer
-                        .trace_straight(e.origin, e.direction)
-                        .map(|h| (e.ton, h.intersection_point, h.incoming_direction, h.triangle.clone()))
-                    )
+                    .filter_map(|e| {
+                        tracer.trace_straight(e.origin, e.direction).map(|h| {
+                            (
+                                e.ton,
+                                h.intersection_point,
+                                h.incoming_direction,
+                                h.triangle.clone(),
+                            )
+                        })
+                    }),
             )
         }
 
@@ -87,16 +99,22 @@ impl Simulation {
     }
 
     /// Deepens the tracing another layer
-    fn trace_deepen(&mut self, mut hits: Vec<(Ton, Vec3, Vec3, Tri)>) -> Vec<(Ton, Vec3, Vec3, Tri)> {
+    fn trace_deepen(
+        &mut self,
+        mut hits: Vec<(Ton, Vec3, Vec3, Tri)>,
+    ) -> Vec<(Ton, Vec3, Vec3, Tri)> {
         // Interaction selection can be parallel
-        let interaction_info : Vec<(MotionType, Vec<usize>)> = hits.par_iter()
+        let interaction_info: Vec<(MotionType, Vec<usize>)> = hits
+            .par_iter()
             .map(|h| Self::select_interaction_idxs_and_next_motion_type(h, &self.surface))
             .collect();
 
         // Deterioration can be parallel
         hits.par_iter_mut()
             .zip(interaction_info.par_iter())
-            .for_each(|(ref mut hit, motion_and_idx)| Self::deteriorate_fast(hit, &motion_and_idx.1, &self.surface));
+            .for_each(|(ref mut hit, motion_and_idx)| {
+                Self::deteriorate_fast(hit, &motion_and_idx.1, &self.surface)
+            });
 
         // Sequentially exchange substances to avoid race condition
         for (hit, interaction_info) in hits.iter_mut().zip(interaction_info.iter()) {
@@ -110,7 +128,7 @@ impl Simulation {
                     for idx in surfel_idxs {
                         Self::deposit(ton, self.surface.samples[*idx].data_mut(), count_weight);
                     }
-                },
+                }
                 // non-settle substance exchange
                 _ => {
                     for idx in surfel_idxs {
@@ -124,26 +142,34 @@ impl Simulation {
         // tons filtered out.
         hits.into_par_iter()
             .zip(interaction_info)
-            .filter_map(|((ton, intersection, incoming, triangle), (motion_type, _))|
-                Self::next_hit(
-                    &self.tracer,
-                    &ton,
-                    intersection,
-                    incoming,
-                    &triangle,
-                    motion_type
-                ).map(move |h| {
-                    (ton, h.intersection_point, h.incoming_direction, h.triangle.clone())
-                })
+            .filter_map(
+                |((ton, intersection, incoming, triangle), (motion_type, _))| {
+                    Self::next_hit(
+                        &self.tracer,
+                        &ton,
+                        intersection,
+                        incoming,
+                        &triangle,
+                        motion_type,
+                    ).map(move |h| {
+                        (
+                            ton,
+                            h.intersection_point,
+                            h.incoming_direction,
+                            h.triangle.clone(),
+                        )
+                    })
+                },
             )
             .collect()
     }
 
-    fn select_interaction_idxs_and_next_motion_type((ton, intersection_point, _, hit_tri): &(Ton, Vec3, Vec3, Tri), surf: &Surface) -> (MotionType, Vec<usize>) {
-        let mut interaction_info = surf.find_within_sphere_indexes(
-            *intersection_point,
-            ton.interaction_radius
-        );
+    fn select_interaction_idxs_and_next_motion_type(
+        (ton, intersection_point, _, hit_tri): &(Ton, Vec3, Vec3, Tri),
+        surf: &Surface,
+    ) -> (MotionType, Vec<usize>) {
+        let mut interaction_info =
+            surf.find_within_sphere_indexes(*intersection_point, ton.interaction_radius);
 
         // Throw out all surfels where normals are rotated by more than 90°
         // relative to the normal of the hit triangle.
@@ -153,7 +179,7 @@ impl Simulation {
         // surface in the interaction radius range, bleeding may still occur.
         let hit_tri_normal = hit_tri.normal();
         interaction_info.retain(|&i| {
-            let surfel_normal  = surf.samples[i].vertex().normal;
+            let surfel_normal = surf.samples[i].vertex().normal;
             hit_tri_normal.dot(surfel_normal) > 0.0
         });
 
@@ -166,8 +192,12 @@ impl Simulation {
         (Self::select_motion_type(ton), interaction_info)
     }
 
-    fn deteriorate_fast((ref mut ton, _, _, _): &mut (Ton, Vec3, Vec3, Tri), surfel_idxs: &[usize], surf: &Surface) {
-        Self::deteriorate(ton, surf.samples[surfel_idxs[0]].data()); 
+    fn deteriorate_fast(
+        (ref mut ton, _, _, _): &mut (Ton, Vec3, Vec3, Tri),
+        surfel_idxs: &[usize],
+        surf: &Surface,
+    ) {
+        Self::deteriorate(ton, surf.samples[surfel_idxs[0]].data());
     }
 
     pub fn surface(&self) -> &Surface {
@@ -180,44 +210,57 @@ impl Simulation {
 
     /// Amount of gammatons emitted from all sources each iteration
     pub fn emission_count(&self) -> usize {
-        self.sources.iter()
-            .map(|s| s.emission_count())
-            .sum()
+        self.sources.iter().map(|s| s.emission_count()).sum()
     }
 
     fn perform_rules(surf: &mut Surface, global_rules: &Vec<SurfelRule>) {
         // First the global rules
         for rule in global_rules {
-            surf.samples.iter_mut()
+            surf.samples
+                .iter_mut()
                 .for_each(|s| Self::perform_rule(&mut s.data_mut().substances, rule))
         }
 
         // Then the local ones
-        surf.samples.iter_mut()
-            .for_each(|s| {
-                let s = s.data_mut();
-                let substances = &mut s.substances;
-                for rule in &s.rules {
-                    Self::perform_rule(substances, rule);
-                }
-            });
+        surf.samples.iter_mut().for_each(|s| {
+            let s = s.data_mut();
+            let substances = &mut s.substances;
+            for rule in &s.rules {
+                Self::perform_rule(substances, rule);
+            }
+        });
     }
 
     fn perform_rule(substances: &mut Vec<f32>, rule: &SurfelRule) {
         // REVIEW should the substances be clamped?
         match rule {
-            &SurfelRule::Deteriorate { substance_idx, factor } =>
-                substances[substance_idx] = ((1.0 + factor) * substances[substance_idx]).max(0.0),
+            &SurfelRule::Deteriorate {
+                substance_idx,
+                factor,
+            } => substances[substance_idx] = ((1.0 + factor) * substances[substance_idx]).max(0.0),
 
-            &SurfelRule::Transfer { source_substance_idx, target_substance_idx, factor } => {
+            &SurfelRule::Transfer {
+                source_substance_idx,
+                target_substance_idx,
+                factor,
+            } => {
                 let transport_amount = factor * substances[source_substance_idx];
-                substances[source_substance_idx] = (substances[source_substance_idx] - transport_amount).max(0.0);
-                substances[target_substance_idx] = (substances[target_substance_idx] + transport_amount).max(0.0);
+                substances[source_substance_idx] =
+                    (substances[source_substance_idx] - transport_amount).max(0.0);
+                substances[target_substance_idx] =
+                    (substances[target_substance_idx] + transport_amount).max(0.0);
             }
         }
     }
 
-    fn next_hit<'a, 'b, 'c>(tracer: &'a Tracer, ton: &'b Ton, intersection_point: Vec3, incoming_direction: Vec3, triangle: &'c Tri, motion_type: MotionType) -> Option<Hit<'a>> {
+    fn next_hit<'a, 'b, 'c>(
+        tracer: &'a Tracer,
+        ton: &'b Ton,
+        intersection_point: Vec3,
+        incoming_direction: Vec3,
+        triangle: &'c Tri,
+        motion_type: MotionType,
+    ) -> Option<Hit<'a>> {
         match motion_type {
             MotionType::Straight => {
                 // Regard surface as completely diffuse:
@@ -225,29 +268,33 @@ impl Simulation {
                 // by multiplying with TBN matrix of triangle.
                 // This assumes CCW winding order for all triangles since normals, binormals
                 // and tangents are calculated from vertices.
-                let outgoing_world = triangle.tangent_to_world_matrix() * UnitHemisphere::PosZ.uniform();
+                let outgoing_world =
+                    triangle.tangent_to_world_matrix() * UnitHemisphere::PosZ.uniform();
                 tracer.trace_straight(intersection_point, outgoing_world)
-            },
+            }
             MotionType::Parabolic => {
                 // Also sample diffuse just like in straight
-                let outgoing_world = triangle.tangent_to_world_matrix() * UnitHemisphere::PosZ.uniform();
+                let outgoing_world =
+                    triangle.tangent_to_world_matrix() * UnitHemisphere::PosZ.uniform();
                 tracer.trace_parabolic(intersection_point, outgoing_world, ton.parabola_height)
-            },
+            }
             MotionType::Flow => {
                 let up = triangle.normal();
                 // TODO project Y unit vector (configurable)
                 // REVIEW maybe project_onto_tangential_plane should return an option for the perpendicular case
-                let mut flow_direction = triangle.project_onto_tangential_plane(match &ton.flow_direction {
-                    &FlowDirection::Incident => incoming_direction,
-                    &FlowDirection::Static(global_flow_direction) => global_flow_direction
-                });
+                let mut flow_direction =
+                    triangle.project_onto_tangential_plane(match &ton.flow_direction {
+                        &FlowDirection::Incident => incoming_direction,
+                        &FlowDirection::Static(global_flow_direction) => global_flow_direction,
+                    });
 
                 // If projected flow direction is zero, it is the result of a failed attempt to project
                 // a perpendicular incoming direction, as a fallback, just project a diffusely sampled
                 // vector (until a non-zero projection turns up)
                 if flow_direction.is_zero() {
                     flow_direction = loop {
-                        let fallback_flow_direction = triangle.project_onto_tangential_plane(triangle.uniform());
+                        let fallback_flow_direction =
+                            triangle.project_onto_tangential_plane(triangle.uniform());
                         if !fallback_flow_direction.is_zero() {
                             break fallback_flow_direction;
                         }
@@ -255,16 +302,21 @@ impl Simulation {
                 }
 
                 tracer.trace_flow(intersection_point, up, flow_direction, ton.flow_distance)
-            },
-            MotionType::Settled => None
+            }
+            MotionType::Settled => None,
         }
     }
 
     fn select_motion_type(ton: &Ton) -> MotionType {
         let mut rng = rand::thread_rng();
-        let random : f32 = rng.gen();
+        let random: f32 = rng.gen();
 
-        let &Ton { p_straight, p_parabolic, p_flow, .. } = ton;
+        let &Ton {
+            p_straight,
+            p_parabolic,
+            p_flow,
+            ..
+        } = ton;
 
         if random < p_straight {
             MotionType::Straight
@@ -301,20 +353,20 @@ impl Simulation {
     /// instead of accumulating.
     fn absorb(ton: &mut Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {
         assert_eq!(
-            interacting_surfel.substances.len(), ton.substances.len(),
+            interacting_surfel.substances.len(),
+            ton.substances.len(),
             "Surfel and ton have unequal amount of materials, cannot transport"
         );
 
-        let material_transports = ton.pickup_rates.iter()
-            .zip(
-                ton.substances
-                    .iter_mut()
-                    .zip(
-                        interacting_surfel.substances.iter_mut()
-                    )
-            );
+        let material_transports = ton.pickup_rates.iter().zip(
+            ton.substances
+                .iter_mut()
+                .zip(interacting_surfel.substances.iter_mut()),
+        );
 
-        for (ref pickup_rate, (ref mut ton_material, ref mut surfel_material)) in material_transports {
+        for (ref pickup_rate, (ref mut ton_material, ref mut surfel_material)) in
+            material_transports
+        {
             // pickup rate gets equally distributed between all interacting surfels
             let pickup_rate = count_weight * *pickup_rate;
 
@@ -333,20 +385,20 @@ impl Simulation {
     /// the ton
     fn deposit(ton: &Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {
         assert_eq!(
-            interacting_surfel.substances.len(), ton.substances.len(),
+            interacting_surfel.substances.len(),
+            ton.substances.len(),
             "Surfel and ton have unequal amount of materials, cannot transport"
         );
 
-        let material_transports = interacting_surfel.deposition_rates.iter()
-            .zip(
-                ton.substances
-                    .iter()
-                    .zip(
-                        interacting_surfel.substances.iter_mut()
-                    )
-            );
+        let material_transports = interacting_surfel.deposition_rates.iter().zip(
+            ton.substances
+                .iter()
+                .zip(interacting_surfel.substances.iter_mut()),
+        );
 
-        for (ref deposition_rate, (ref ton_material, ref mut surfel_material)) in material_transports {
+        for (ref deposition_rate, (ref ton_material, ref mut surfel_material)) in
+            material_transports
+        {
             // pickup rate gets equally distributed between all interacting surfels
             let deposition_rate = count_weight * *deposition_rate;
             let transport_amount = deposition_rate * **ton_material;

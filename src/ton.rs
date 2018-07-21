@@ -1,6 +1,5 @@
-
-use geom::{Vec3, Interpolation, TupleTriangle, Vertex, Position, TangentSpace};
-use sampling::{TriangleBins, UnitSphere, UnitHemisphere, Uniform};
+use geom::{Interpolation, Position, TangentSpace, TupleTriangle, Vec3, Vertex};
+use sampling::{TriangleBins, Uniform, UnitHemisphere, UnitSphere};
 use scene::{Entity, Mesh};
 use std::f32::EPSILON;
 use std::iter;
@@ -26,7 +25,7 @@ pub struct Ton {
     /// Amount of substances currently being carried by this ton
     pub substances: Vec<f32>,
     /// Factor by which the gammaton picks up material from surfels
-    pub pickup_rates: Vec<f32>
+    pub pickup_rates: Vec<f32>,
 }
 
 /// Determines method for determination of flow direction based on a hit.
@@ -37,7 +36,7 @@ pub enum FlowDirection {
     Incident,
     /// Projects the associated normalized vector onto the tangential plane to obtain
     /// flow direction.
-    Static(Vec3)
+    Static(Vec3),
 }
 
 // TODO the sampling should be stratified, e.g. by subdividing the possible directions into patches and ensuring every one gets its turn
@@ -49,38 +48,40 @@ enum Shape {
         /// The center of the bottom disk of the hemisphere
         center: Vec3,
         /// Distance from the center for ray origins
-        radius: f32
+        radius: f32,
     },
     /// Shoots from the given mesh in interpolated normal direction
-    Mesh { triangles: TriangleBins<TupleTriangle<Vertex>>, diffuse: bool }
+    Mesh {
+        triangles: TriangleBins<TupleTriangle<Vertex>>,
+        diffuse: bool,
+    },
 }
 
 pub struct TonSource {
     /// Emission shape
     shape: Shape,
     proto_ton: Ton,
-    emission_count: usize
+    emission_count: usize,
 }
 
 pub struct TonSourceBuilder {
-    source: TonSource
+    source: TonSource,
 }
 
 pub struct TonEmission {
     pub origin: Vec3,
     pub direction: Vec3,
-    pub ton: Ton
+    pub ton: Ton,
 }
 
 impl TonSource {
-
     pub fn emit_one(&self) -> TonEmission {
         let ton = self.proto_ton.clone();
         let (origin, direction) = match &self.shape {
             &Shape::Point { position } => (
                 position.clone(),
                 // Random position on the unit sphere
-                UnitSphere.uniform()
+                UnitSphere.uniform(),
             ),
             &Shape::Hemisphere { center, radius } => {
                 let unit = UnitHemisphere::PosZ.uniform();
@@ -88,14 +89,14 @@ impl TonSource {
                 // REVIEW wait, should they really all be flying towards the center?
                 let direction = -unit;
                 (origin, direction)
-            },
-            &Shape::Mesh { ref triangles, diffuse } => {
+            }
+            &Shape::Mesh {
+                ref triangles,
+                diffuse,
+            } => {
                 // Interpolate a vertex on a random position on a randomly selected triangle (weighted by area)
                 let tri = triangles.sample();
-                let vtx = tri.interpolate_at(
-                    tri.uniform(),
-                    |v| v.clone()
-                );
+                let vtx = tri.interpolate_at(tri.uniform(), |v| v.clone());
 
                 let direction = if diffuse {
                     tri.tangent_to_world_matrix() * UnitHemisphere::PosZ.uniform()
@@ -108,7 +109,11 @@ impl TonSource {
             }
         };
 
-        TonEmission { origin, direction, ton }
+        TonEmission {
+            origin,
+            direction,
+            ton,
+        }
     }
 
     pub fn emit<'a>(&'a self) -> impl Iterator<Item = TonEmission> + 'a {
@@ -127,7 +132,9 @@ impl TonSourceBuilder {
         TonSourceBuilder {
             source: TonSource {
                 emission_count: 10000,
-                shape: Shape::Point { position: Vec3::new(0.0, 0.0, 0.0) },
+                shape: Shape::Point {
+                    position: Vec3::new(0.0, 0.0, 0.0),
+                },
                 proto_ton: Ton {
                     p_straight: 0.0,
                     p_parabolic: 0.0,
@@ -137,14 +144,16 @@ impl TonSourceBuilder {
                     parabola_height: 0.05,
                     flow_distance: 0.02,
                     flow_direction: FlowDirection::Incident,
-                    pickup_rates: Vec::new()
-                }
-            }
+                    pickup_rates: Vec::new(),
+                },
+            },
         }
     }
 
     pub fn point_shaped(mut self, pos_x: f32, pos_y: f32, pos_z: f32) -> TonSourceBuilder {
-        self.source.shape = Shape::Point { position: Vec3::new(pos_x, pos_y, pos_z) };
+        self.source.shape = Shape::Point {
+            position: Vec3::new(pos_x, pos_y, pos_z),
+        };
         self
     }
 
@@ -158,15 +167,15 @@ impl TonSourceBuilder {
     }
 
     pub fn mesh_shaped<'a, T, M, V>(mut self, mesh: &'a T, diffuse: bool) -> TonSourceBuilder
-        where T : Deref<Target = M>,
-            M : Mesh<'a, Vertex = V> + 'a,
-            V : Position,
-            TriangleBins<TupleTriangle<Vertex>>: iter::FromIterator<TupleTriangle<V>>
+    where
+        T: Deref<Target = M>,
+        M: Mesh<'a, Vertex = V> + 'a,
+        V: Position,
+        TriangleBins<TupleTriangle<Vertex>>: iter::FromIterator<TupleTriangle<V>>,
     {
         self.source.shape = Shape::Mesh {
-            triangles: mesh.triangles()
-                .collect(),
-            diffuse
+            triangles: mesh.triangles().collect(),
+            diffuse,
         };
 
         self
@@ -197,7 +206,10 @@ impl TonSourceBuilder {
         self
     }
 
-    pub fn pickup_rates<R : IntoIterator<Item = f32>> (mut self, pickup_rates: R) -> TonSourceBuilder {
+    pub fn pickup_rates<R: IntoIterator<Item = f32>>(
+        mut self,
+        pickup_rates: R,
+    ) -> TonSourceBuilder {
         self.source.proto_ton.pickup_rates = pickup_rates.into_iter().collect();
         self
     }
@@ -241,8 +253,9 @@ mod test {
 
     #[test]
     fn test_shoot_from_mesh() {
-        let entities = aitios_asset::obj::load("test-scenes/buddha-scene-ton-source-mesh/buddha-scene-ton-source-sun.obj")
-            .unwrap();
+        let entities = aitios_asset::obj::load(
+            "test-scenes/buddha-scene-ton-source-mesh/buddha-scene-ton-source-sun.obj",
+        ).unwrap();
 
         assert_eq!(1, entities.len());
 
@@ -253,7 +266,13 @@ mod test {
             .build();
 
         assert_eq!(src.emit().count(), 10);
-        assert!(src.emit().all(|TonEmission { ton, origin, direction }| ton.p_flow == 0.2 && origin.y > 0.1 && direction.y < 0.0));
+        assert!(src.emit().all(
+            |TonEmission {
+                 ton,
+                 origin,
+                 direction,
+             }| ton.p_flow == 0.2 && origin.y > 0.1 && direction.y < 0.0
+        ));
 
         let src = TonSourceBuilder::new()
             .p_flow(0.2)
@@ -262,6 +281,12 @@ mod test {
             .build();
 
         assert_eq!(src.emit().count(), 10);
-        assert!(src.emit().all(|TonEmission { ton, origin, direction }| ton.p_flow == 0.2 && origin.y > 0.1 && direction.y < 0.0));
+        assert!(src.emit().all(
+            |TonEmission {
+                 ton,
+                 origin,
+                 direction,
+             }| ton.p_flow == 0.2 && origin.y > 0.1 && direction.y < 0.0
+        ));
     }
 }

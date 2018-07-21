@@ -15,5 +15,5 @@ pub struct SurfelData {
     pub substances: Vec<f32>,
     /// Weights for the transport of substances from a settled ton to a surfel.
     pub deposition_rates: Vec<f32>,
-    pub rules: Vec<SurfelRule>
+    pub rules: Vec<SurfelRule>,
 }

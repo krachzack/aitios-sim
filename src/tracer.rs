@@ -1,75 +1,74 @@
-
-use spatial::Octree;
-use geom::{
-    Vec3,
-    TupleTriangle,
-    Vertex
-};
 use geom::prelude::*;
-use std::f32::INFINITY;
+use geom::{TupleTriangle, Vec3, Vertex};
+use spatial::Octree;
 #[cfg(feature = "debug_tracing")]
 use std::cell::RefCell;
+use std::f32::INFINITY;
 
 #[cfg(feature = "debug_tracing")]
 enum TracingEvent {
     Straight(Vec3, Vec3),
     Parabolic(Vec3, Vec3),
-    Flow(Vec3, Vec3)
+    Flow(Vec3, Vec3),
 }
 #[cfg(feature = "debug_tracing")]
 const MAX_TRACING_EVENT_COUNT: usize = 600;
 /// Delta to move before checking for intersections. This avoids rays
 /// intersecting the triangle they originated from due to floating point
 /// imprecision.
-const SELF_INTERSECTION_EPSILON : f32 = 0.0001;
+const SELF_INTERSECTION_EPSILON: f32 = 0.0001;
 
 pub struct Tracer {
     geometry: Octree<TupleTriangle<Vertex>>,
     #[cfg(feature = "debug_tracing")]
-    first_tracing_events: RefCell<Vec<TracingEvent>>
+    first_tracing_events: RefCell<Vec<TracingEvent>>,
 }
 
 pub struct Hit<'a> {
     pub intersection_point: Vec3,
     pub incoming_direction: Vec3,
-    pub triangle: &'a TupleTriangle<Vertex>
+    pub triangle: &'a TupleTriangle<Vertex>,
 }
 
 impl Tracer {
     pub fn new<I>(triangles: I) -> Self
-        where I : IntoIterator<Item = TupleTriangle<Vertex>>
+    where
+        I: IntoIterator<Item = TupleTriangle<Vertex>>,
     {
         Tracer {
-            geometry: triangles.into_iter()
-                .collect(),
+            geometry: triangles.into_iter().collect(),
             #[cfg(feature = "debug_tracing")]
-            first_tracing_events: RefCell::new(Vec::new())
+            first_tracing_events: RefCell::new(Vec::new()),
         }
     }
 
     pub fn trace_straight(&self, from: Vec3, direction: Vec3) -> Option<Hit> {
         let from = from + direction * 0.0000001; // avoid self-intersection
-        self.geometry.ray_intersection_target_and_parameter(from, direction)
-            .map(
-                |(hit_tri, t)| {
-                    let intersection_point = from + t * direction;
+        self.geometry
+            .ray_intersection_target_and_parameter(from, direction)
+            .map(|(hit_tri, t)| {
+                let intersection_point = from + t * direction;
 
-                    #[cfg(feature = "debug_tracing")]
-                    self.debug_straight(from, intersection_point);
+                #[cfg(feature = "debug_tracing")]
+                self.debug_straight(from, intersection_point);
 
-                    Hit {
-                        intersection_point,
-                        incoming_direction: direction,
-                        triangle: hit_tri
-                    }
+                Hit {
+                    intersection_point,
+                    incoming_direction: direction,
+                    triangle: hit_tri,
                 }
-            )
+            })
     }
 
     /// `upward_parabola_height` indicates maximum height of a bounce in the special case it is flung
     /// straight up and gravity pointing straight down. Most parabolic paths will not be straight up and
     /// have less height, might even be pointing downward from the beginning.
-    pub fn trace_parabolic(&self, from: Vec3, direction: Vec3, upward_parabola_height: f32) -> Option<Hit> {
+    pub fn trace_parabolic(
+        &self,
+        from: Vec3,
+        direction: Vec3,
+        upward_parabola_height: f32,
+    ) -> Option<Hit> {
         let gravity_mag = 9.81_f32;
         let timestep = 1.0 / 60.0; // 0.0333333 seconds, more is more exact but slower
 
@@ -93,17 +92,20 @@ impl Tracer {
             let dist = spatial_delta.magnitude();
             let direction = spatial_delta / dist;
 
-            if let Some((hit_tri, t)) = self.geometry.line_segment_intersection_target_and_parameter(position, direction, dist) {
+            if let Some((hit_tri, t)) = self
+                .geometry
+                .line_segment_intersection_target_and_parameter(position, direction, dist)
+            {
                 let intersection_point = position + t * direction;
 
                 #[cfg(feature = "debug_tracing")]
                 self.debug_parabolic(position, intersection_point);
 
-                return Some(
-                    Hit {
-                        intersection_point, incoming_direction: direction, triangle: hit_tri
-                    }
-                );
+                return Some(Hit {
+                    intersection_point,
+                    incoming_direction: direction,
+                    triangle: hit_tri,
+                });
             } else {
                 // No intersection, safe to move particle without penetrating objects
                 position += spatial_delta;
@@ -119,7 +121,13 @@ impl Tracer {
     /// From should be on a triangle, direction should be aligned with tangential plane of triangle
     /// Up is in normal direction.
     /// flow_distance is offset in tangential direction before interacting again.
-    pub fn trace_flow(&self, from: Vec3, up: Vec3, tangential_direction: Vec3, flow_distance: f32) -> Option<Hit> {
+    pub fn trace_flow(
+        &self,
+        from: Vec3,
+        up: Vec3,
+        tangential_direction: Vec3,
+        flow_distance: f32,
+    ) -> Option<Hit> {
         let upward_epsilon = flow_distance * 1.3;
 
         // First a little bias to avoid self-intersection
@@ -128,17 +136,20 @@ impl Tracer {
 
         // First, move up for flow
         // This should normally not intersect anything, if it does, count as flow target even though not tangential
-        if let Some((hit_tri, t)) = self.geometry.line_segment_intersection_target_and_parameter(from, up, upward_epsilon) {
+        if let Some((hit_tri, t)) = self
+            .geometry
+            .line_segment_intersection_target_and_parameter(from, up, upward_epsilon)
+        {
             let intersection_point = from + t * up;
 
             #[cfg(feature = "debug_tracing")]
             self.debug_flow(from, intersection_point);
 
-            return Some(
-                Hit {
-                    intersection_point, incoming_direction: up, triangle: hit_tri
-                }
-            );
+            return Some(Hit {
+                intersection_point,
+                incoming_direction: up,
+                triangle: hit_tri,
+            });
         }
 
         let atop = from + upward_epsilon * up;
@@ -151,19 +162,25 @@ impl Tracer {
         self.debug_flow(from, atop);
 
         // *2 because the underlying surface is not guaranteed to be flat
-        if let Some((hit_tri, t)) = self.geometry.line_segment_intersection_target_and_parameter(atop, dir, 2.0 * expected_dist_sqr.sqrt()) {
+        if let Some((hit_tri, t)) = self
+            .geometry
+            .line_segment_intersection_target_and_parameter(
+                atop,
+                dir,
+                2.0 * expected_dist_sqr.sqrt(),
+            ) {
             let intersection_point = atop + t * dir;
 
             #[cfg(feature = "debug_tracing")]
             self.debug_flow(atop, intersection_point);
 
             //if intersection_point.distance2(from) < (2.0 *  expected_dist_sqr) {
-                return Some(
-                    Hit {
-                        intersection_point, incoming_direction: dir, triangle: hit_tri
-                    }
-                )
-            //}
+            return Some(Hit {
+                intersection_point,
+                incoming_direction: dir,
+                triangle: hit_tri,
+            });
+        //}
         } else {
             #[cfg(feature = "debug_tracing")]
             self.debug_flow(atop, atop + dir * 10.0);
@@ -254,7 +271,7 @@ impl Tracer {
             let (mat, from, to) = match evt {
                 &TracingEvent::Straight(from, to) => ("straight", from, to),
                 &TracingEvent::Parabolic(from, to) => ("parabolic", from, to),
-                &TracingEvent::Flow(from, to) => ("flow", from, to)
+                &TracingEvent::Flow(from, to) => ("flow", from, to),
             };
 
             if mat != last_mtl {
@@ -263,9 +280,12 @@ impl Tracer {
                 last_mtl = mat;
             }
 
-            obj.write(format!("v {} {} {}\n", from.x, from.y, from.z).as_bytes()).unwrap();
-            obj.write(format!("v {} {} {}\n", to.x, to.y, to.z).as_bytes()).unwrap();
-            obj.write(format!("l {} {}\n", idx, idx+1).as_bytes()).unwrap();
+            obj.write(format!("v {} {} {}\n", from.x, from.y, from.z).as_bytes())
+                .unwrap();
+            obj.write(format!("v {} {} {}\n", to.x, to.y, to.z).as_bytes())
+                .unwrap();
+            obj.write(format!("l {} {}\n", idx, idx + 1).as_bytes())
+                .unwrap();
 
             idx += 2;
         }
@@ -277,25 +297,25 @@ mod test {
     extern crate aitios_asset;
 
     use super::*;
-    use geom::{Position, Normal, Interpolation};
+    use geom::{Interpolation, Normal, Position};
     use scene::Mesh;
 
     #[test]
     fn test_straight_tracing() {
         // This is the top part of an icosphere, will try to hit it by shooting from the origin
-        let entities = aitios_asset::obj::load("test-scenes/buddha-scene-ton-source-mesh/buddha-scene-ton-source-sun.obj")
-            .unwrap();
+        let entities = aitios_asset::obj::load(
+            "test-scenes/buddha-scene-ton-source-mesh/buddha-scene-ton-source-sun.obj",
+        ).unwrap();
 
         // Will try to hit first vertex in first entity
         let known_vertex = entities[0].mesh.vertices().next().unwrap().position();
 
-        let octree : Octree<_> = entities.iter()
+        let octree: Octree<_> = entities
+            .iter()
             .flat_map(|ent| ent.mesh.triangles())
             .collect();
 
-        let tracer = Tracer {
-            geometry: octree
-        };
+        let tracer = Tracer { geometry: octree };
 
         let origin = Vec3::new(0.0, 0.1, 0.2);
         let direction = known_vertex - origin;
@@ -307,25 +327,28 @@ mod test {
 
         // In the other direction, it should be a miss
         let miss = tracer.trace_straight(origin, -direction);
-        assert!(miss.is_none(), "Expected to hit nothing when shooting in inverted direction");
+        assert!(
+            miss.is_none(),
+            "Expected to hit nothing when shooting in inverted direction"
+        );
     }
 
     #[test]
     fn test_straight_up_parabola() {
         // This is the top part of an icosphere, will try to hit it by shooting a vertex
         // from exactly below and a given parabola height
-        let entities = aitios_asset::obj::load("test-scenes/buddha-scene-ton-source-mesh/buddha-scene-ton-source-sun.obj")
-            .unwrap();
+        let entities = aitios_asset::obj::load(
+            "test-scenes/buddha-scene-ton-source-mesh/buddha-scene-ton-source-sun.obj",
+        ).unwrap();
 
         let known_vertex = entities[0].mesh.vertices().next().unwrap().position();
 
-        let octree : Octree<_> = entities.iter()
+        let octree: Octree<_> = entities
+            .iter()
             .flat_map(|ent| ent.mesh.triangles())
             .collect();
 
-        let tracer = Tracer {
-            geometry: octree
-        };
+        let tracer = Tracer { geometry: octree };
 
         let parabola_height = 10.0;
         let bias = 0.2; // The bias is necessary because euler integration is quite inexact, especially with f32
@@ -341,13 +364,11 @@ mod test {
     fn test_flow_on_flat_surface_with_offset() {
         // This is the top part of an icosphere, will try to hit it by shooting a vertex
         // from exactly below and a given parabola height
-        let entities = aitios_asset::obj::load("test-scenes/buddha-scene-ton-source-mesh/buddha-scene-ton-source-sun.obj")
-            .unwrap();
+        let entities = aitios_asset::obj::load(
+            "test-scenes/buddha-scene-ton-source-mesh/buddha-scene-ton-source-sun.obj",
+        ).unwrap();
 
-        let tracer = Tracer::new(
-            entities.iter()
-                .flat_map(|ent| ent.mesh.triangles())
-        );
+        let tracer = Tracer::new(entities.iter().flat_map(|ent| ent.mesh.triangles()));
 
         let some_tri = entities[0].mesh.triangles().next().unwrap();
 
@@ -364,6 +385,11 @@ mod test {
         assert!(hit.is_some(), "Expected to hit known vertex");
 
         let hit = hit.unwrap().intersection_point;
-        assert!(hit.distance(expected_intersection_point) < 0.0001, "Flow tracing ended up in unexpected place: {:?}\n expecting: {:?}", hit, expected_intersection_point);
+        assert!(
+            hit.distance(expected_intersection_point) < 0.0001,
+            "Flow tracing ended up in unexpected place: {:?}\n expecting: {:?}",
+            hit,
+            expected_intersection_point
+        );
     }
 }
