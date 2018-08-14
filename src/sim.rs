@@ -184,7 +184,7 @@ impl Simulation {
         });
 
         if interaction_info.len() == 0 {
-            warn!("Ton hit a surface but did not interact with any surfels, try higher interaction radius, interacting with nearest surfel instead.");
+            debug!("Ton hit a surface but did not interact with any surfels, try higher interaction radius, interacting with nearest surfel instead.");
             interaction_info.push(surf.nearest_idx(*intersection_point));
         }
 

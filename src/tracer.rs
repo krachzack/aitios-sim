@@ -17,13 +17,16 @@ const MAX_TRACING_EVENT_COUNT: usize = 600;
 /// intersecting the triangle they originated from due to floating point
 /// imprecision.
 const SELF_INTERSECTION_EPSILON: f32 = 0.0001;
+const FLOW_ADHESIVENESS: f32 = 1.1; // Allow downward motion of flow to be 10% longer than to be expected on a flat surface, so it can flow upward a little bit
 
 pub struct Tracer {
     geometry: Octree<TupleTriangle<Vertex>>,
+    gravity_direction: Vec3,
     #[cfg(feature = "debug_tracing")]
     first_tracing_events: RefCell<Vec<TracingEvent>>,
 }
 
+#[derive(Debug)]
 pub struct Hit<'a> {
     pub intersection_point: Vec3,
     pub incoming_direction: Vec3,
@@ -37,6 +40,7 @@ impl Tracer {
     {
         Tracer {
             geometry: triangles.into_iter().collect(),
+            gravity_direction: Vec3::new(0.0, -1.0, 0.0),
             #[cfg(feature = "debug_tracing")]
             first_tracing_events: RefCell::new(Vec::new()),
         }
@@ -72,7 +76,7 @@ impl Tracer {
         let gravity_mag = 9.81_f32;
         let timestep = 1.0 / 60.0; // 0.0333333 seconds, more is more exact but slower
 
-        let gravity_acceleration = Vec3::new(0.0, -gravity_mag, 0.0);
+        let gravity_acceleration = gravity_mag * self.gravity_direction;
         let takeoff_velocity_mag = (2.0 * gravity_mag * upward_parabola_height).sqrt();
         let mut velocity = takeoff_velocity_mag * direction;
         let mut position = from + direction * SELF_INTERSECTION_EPSILON;
@@ -128,18 +132,30 @@ impl Tracer {
         tangential_direction: Vec3,
         flow_distance: f32,
     ) -> Option<Hit> {
+        // Upward epsilon is chosen with a fixed angle
         let upward_epsilon = flow_distance * 1.3;
+
+        // FIXME
+        // in the thesis it sounded better to first do
+        // tangential, and the second segment either straight
+        // down or gravity
 
         // First a little bias to avoid self-intersection
         let from = from + SELF_INTERSECTION_EPSILON * up;
+
+        // Expected flow target on a hypothetical flat surface
         let to = from + tangential_direction * flow_distance;
 
         // First, move up for flow
-        // This should normally not intersect anything, if it does, count as flow target even though not tangential
-        if let Some((hit_tri, t)) = self
+        // This should normally not intersect anything, but
+        // provides an origin for the downward raycast.
+        // If it does intersect something, we are in some sort
+        // of cavity. Count as flow target even though not tangential.
+        let upward_hit = self
             .geometry
-            .line_segment_intersection_target_and_parameter(from, up, upward_epsilon)
-        {
+            .line_segment_intersection_target_and_parameter(from, up, upward_epsilon);
+
+        if let Some((hit_tri, t)) = upward_hit {
             let intersection_point = from + t * up;
 
             #[cfg(feature = "debug_tracing")]
@@ -152,40 +168,56 @@ impl Tracer {
             });
         }
 
+        // Now move from above to projected intersection location
         let atop = from + upward_epsilon * up;
         let dir = (to - atop).normalize();
-        // On a flat surface, the ray should intersect again in sqrt(expected_dist_sqr) distance from
+        // On a flat surface, the ray should intersect
+        // again in sqrt(expected_dist_sqr) distance from
         // the new from offset to the top
+        // TODO cache this, sqrt is expensive
         let expected_dist_sqr = upward_epsilon * upward_epsilon + flow_distance * flow_distance;
+        let expected_dist = expected_dist_sqr.sqrt();
 
         #[cfg(feature = "debug_tracing")]
         self.debug_flow(from, atop);
-
-        // *2 because the underlying surface is not guaranteed to be flat
-        if let Some((hit_tri, t)) = self
+        let tangential_hit = self
             .geometry
-            .line_segment_intersection_target_and_parameter(
-                atop,
-                dir,
-                2.0 * expected_dist_sqr.sqrt(),
-            ) {
+            .line_segment_intersection_target_and_parameter(atop, dir, expected_dist + FLOW_ADHESIVENESS);
+
+        if let Some((hit_tri, t)) = tangential_hit {
             let intersection_point = atop + t * dir;
 
             #[cfg(feature = "debug_tracing")]
             self.debug_flow(atop, intersection_point);
 
-            //if intersection_point.distance2(from) < (2.0 *  expected_dist_sqr) {
             return Some(Hit {
                 intersection_point,
                 incoming_direction: dir,
                 triangle: hit_tri,
             });
-        //}
-        } else {
+        }
+
+        #[cfg(feature = "debug_tracing")]
+        self.debug_flow(atop, to);
+
+        // Not back on the surface yet, surface must have
+        // convex local neighbourhood. Follow gravity.
+        let from = atop + dir * (expected_dist + FLOW_ADHESIVENESS);
+        let secondary_target = self
+            .geometry
+            .ray_intersection_target_and_parameter(from, self.gravity_direction);
+
+        if let Some((hit_tri, t)) = secondary_target {
+            let intersection_point = from + self.gravity_direction * t;
+
             #[cfg(feature = "debug_tracing")]
-            self.debug_flow(atop, atop + dir * 10.0);
-            // TODO remove this println
-            //warn!("Downward motion in flow did not hit anything");
+            self.debug_flow(from, intersection_point);
+
+            return Some(Hit {
+                intersection_point,
+                incoming_direction: self.gravity_direction,
+                triangle: hit_tri,
+            });
         }
 
         None
@@ -297,7 +329,7 @@ mod test {
     extern crate aitios_asset;
 
     use super::*;
-    use geom::{Interpolation, Normal, Position};
+    use geom::{Vec2, Vec3, Vertex, Position, TangentSpace, TupleTriangle as Tri};
     use scene::Mesh;
 
     #[test]
@@ -310,12 +342,9 @@ mod test {
         // Will try to hit first vertex in first entity
         let known_vertex = entities[0].mesh.vertices().next().unwrap().position();
 
-        let octree: Octree<_> = entities
+        let tracer = Tracer::new(entities
             .iter()
-            .flat_map(|ent| ent.mesh.triangles())
-            .collect();
-
-        let tracer = Tracer { geometry: octree };
+            .flat_map(|ent| ent.mesh.triangles()));
 
         let origin = Vec3::new(0.0, 0.1, 0.2);
         let direction = known_vertex - origin;
@@ -343,12 +372,9 @@ mod test {
 
         let known_vertex = entities[0].mesh.vertices().next().unwrap().position();
 
-        let octree: Octree<_> = entities
+        let tracer = Tracer::new(entities
             .iter()
-            .flat_map(|ent| ent.mesh.triangles())
-            .collect();
-
-        let tracer = Tracer { geometry: octree };
+            .flat_map(|ent| ent.mesh.triangles()));
 
         let parabola_height = 10.0;
         let bias = 0.2; // The bias is necessary because euler integration is quite inexact, especially with f32
@@ -358,6 +384,58 @@ mod test {
         let hit = tracer.trace_parabolic(origin, Vec3::new(0.0, 1.0, 0.0), parabola_height);
         assert!(hit.is_some(), "Expected to hit known vertex");
         assert_ulps_eq!(hit.unwrap().intersection_point, known_vertex);
+    }
+
+    #[test]
+    fn test_flow_on_flat() {
+        // 1x1 quad on the X/Z plane
+        let tracer = Tracer::new(x_z_quad().into_iter());
+
+        let origin = Vec3::new(0.0, 0.0, 0.0);
+        let up = Vec3::new(0.0, 1.0, 0.0);
+        let flow_direction = Vec3::new(0.0, 0.0, 1.0);
+
+        let hit = tracer.trace_flow(origin, up, flow_direction, 0.4);
+        assert!(hit.is_some());
+        let hit = hit.unwrap();
+        assert_relative_eq!(Vec3::new(0.0, 0.0, 0.4), hit.intersection_point, epsilon = 0.0001);
+
+        let hit = tracer.trace_flow(origin, up, flow_direction, 0.8);
+        assert!(hit.is_some());
+        let hit = hit.unwrap();
+        assert_relative_eq!(Vec3::new(0.0, 0.0, 0.8), hit.intersection_point, epsilon = 0.0001);
+
+        let hit = tracer.trace_flow(origin, up, flow_direction, 0.9);
+        assert!(hit.is_some());
+        let hit = hit.unwrap();
+        assert_relative_eq!(Vec3::new(0.0, 0.0, 0.9), hit.intersection_point, epsilon = 0.0001);
+
+        let hit = tracer.trace_flow(origin, up, flow_direction, 0.99);
+        assert!(hit.is_some());
+        let hit = hit.unwrap();
+        assert_relative_eq!(Vec3::new(0.0, 0.0, 0.99), hit.intersection_point, epsilon = 0.0001);
+
+        let hit = tracer.trace_flow(origin, up, flow_direction, 1.5)
+            .map(|h| h.intersection_point);
+        assert_eq!(None, hit);
+
+        let hit = tracer.trace_flow(origin, up, flow_direction, 1.05);
+        assert!(hit.is_none());
+
+        let hit = tracer.trace_flow(origin, up, flow_direction, 1.01);
+        assert!(hit.is_none());
+    }
+
+    #[test]
+    #[ignore]
+    fn test_flow_on_concave() {
+        unimplemented!();
+    }
+
+    #[test]
+    #[ignore]
+    fn test_flow_on_convex() {
+        unimplemented!();
     }
 
     #[test]
@@ -373,14 +451,14 @@ mod test {
         let some_tri = entities[0].mesh.triangles().next().unwrap();
 
         let centroid = some_tri.centroid();
-        let normal = some_tri.interpolate_at(centroid, |v| v.normal());
+        let normal = some_tri.normal();
         let (vertex_a, _, _) = some_tri.positions();
 
         let to_vertex_a_dist = vertex_a.distance(centroid);
-        let flow_direction = (vertex_a - centroid) / to_vertex_a_dist;
-        let expected_intersection_point = centroid + flow_direction * 0.9 * to_vertex_a_dist;
+        let flow_direction = (centroid - vertex_a) / to_vertex_a_dist;
+        let expected_intersection_point = centroid;
 
-        let hit = tracer.trace_flow(centroid, normal, flow_direction, 0.9 * to_vertex_a_dist);
+        let hit = tracer.trace_flow(vertex_a, normal, flow_direction, to_vertex_a_dist);
 
         assert!(hit.is_some(), "Expected to hit known vertex");
 
@@ -391,5 +469,40 @@ mod test {
             hit,
             expected_intersection_point
         );
+    }
+
+    fn x_z_quad() -> Vec<Tri<Vertex>> {
+        let left_front = Vertex {
+            position: Vec3::new(-1.0, 0.0, 1.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            texcoords: Vec2::new(0.0, 0.0)
+        };
+
+        let right_front = Vertex {
+            position: Vec3::new(1.0, 0.0, 1.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            texcoords: Vec2::new(1.0, 0.0)
+        };
+
+        let left_rear = Vertex {
+            position: Vec3::new(-1.0, 0.0, -1.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            texcoords: Vec2::new(0.0, 1.0)
+        };
+
+        let right_rear = Vertex {
+            position: Vec3::new(1.0, 0.0, -1.0),
+            normal: Vec3::new(0.0, 0.0, 1.0),
+            texcoords: Vec2::new(1.0, 1.0)
+        };
+
+        vec![
+            Tri(
+                left_front.clone(), right_front, right_rear.clone()
+            ),
+            Tri(
+                left_front, right_rear, left_rear
+            ),
+        ]
     }
 }
