@@ -1,5 +1,6 @@
 use geom::prelude::*;
 use geom::{TangentSpace, TupleTriangle, Vec3, Vertex};
+use motion::MotionType;
 use rand;
 use rand::Rng;
 use rayon::prelude::*;
@@ -10,6 +11,7 @@ use surfel_data::SurfelData;
 use surfel_rule::SurfelRule;
 use ton::{FlowDirection, Ton, TonSource};
 use tracer::{Hit, Tracer};
+use transport::classic_transport;
 
 type Surface = surf::Surface<Surfel<Vertex, SurfelData>>;
 type Tri = TupleTriangle<Vertex>;
@@ -23,14 +25,6 @@ pub struct Simulation {
     surface: Surface,
     /// Global surfel rules for all surfels
     surfel_rules: Vec<SurfelRule>,
-}
-
-#[derive(PartialEq, Copy, Clone)]
-enum MotionType {
-    Straight,
-    Parabolic,
-    Flow,
-    Settled,
 }
 
 impl Simulation {
@@ -118,24 +112,9 @@ impl Simulation {
 
         // Sequentially exchange substances to avoid race condition
         for (hit, interaction_info) in hits.iter_mut().zip(interaction_info.iter()) {
-            let (ton, _, _, _) = hit;
-            let (next_motion_type, surfel_idxs) = interaction_info;
-            let count_weight = (surfel_idxs.len() as f32).recip();
-
-            match next_motion_type {
-                // settle substance exchange
-                MotionType::Settled => {
-                    for idx in surfel_idxs {
-                        Self::deposit(ton, self.surface.samples[*idx].data_mut(), count_weight);
-                    }
-                }
-                // non-settle substance exchange
-                _ => {
-                    for idx in surfel_idxs {
-                        Self::absorb(ton, self.surface.samples[*idx].data_mut(), count_weight);
-                    }
-                }
-            }
+            let (ref mut ton, _, _, _) = hit;
+            let surfels = &mut self.surface.samples;
+            classic_transport().perform(ton, surfels, interaction_info);
         }
 
         // Move hits to next hit point, if any, and return new hits with settled
@@ -345,64 +324,6 @@ impl Simulation {
             warn!("Ton: {:?}", ton);
             warn!("Surfel: {:?}", surfel);
             ton.p_flow -= ton.p_straight + ton.p_parabolic + ton.p_flow - 1.0
-        }
-    }
-
-    /// Makes the ton pick up material from a surfel it is interacting with.
-    /// The pick up rate can also be negative, the ton then deposits material on contact
-    /// instead of accumulating.
-    fn absorb(ton: &mut Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {
-        assert_eq!(
-            interacting_surfel.substances.len(),
-            ton.substances.len(),
-            "Surfel and ton have unequal amount of materials, cannot transport"
-        );
-
-        let material_transports = ton.pickup_rates.iter().zip(
-            ton.substances
-                .iter_mut()
-                .zip(interacting_surfel.substances.iter_mut()),
-        );
-
-        for (ref pickup_rate, (ref mut ton_material, ref mut surfel_material)) in
-            material_transports
-        {
-            // pickup rate gets equally distributed between all interacting surfels
-            let pickup_rate = count_weight * *pickup_rate;
-
-            let transport_amount = pickup_rate * if pickup_rate >= 0.0 {
-                **surfel_material
-            } else {
-                **ton_material
-            };
-
-            **surfel_material = (**surfel_material - transport_amount).max(0.0);
-            **ton_material = (**ton_material + transport_amount).max(0.0);
-        }
-    }
-
-    /// Deposits the materials in the ton in the interacting surfel, not mutating
-    /// the ton
-    fn deposit(ton: &Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {
-        assert_eq!(
-            interacting_surfel.substances.len(),
-            ton.substances.len(),
-            "Surfel and ton have unequal amount of materials, cannot transport"
-        );
-
-        let material_transports = interacting_surfel.deposition_rates.iter().zip(
-            ton.substances
-                .iter()
-                .zip(interacting_surfel.substances.iter_mut()),
-        );
-
-        for (ref deposition_rate, (ref ton_material, ref mut surfel_material)) in
-            material_transports
-        {
-            // pickup rate gets equally distributed between all interacting surfels
-            let deposition_rate = count_weight * *deposition_rate;
-            let transport_amount = deposition_rate * **ton_material;
-            **surfel_material = (**surfel_material + transport_amount).max(0.0);
         }
     }
 }

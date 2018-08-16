@@ -182,7 +182,11 @@ impl Tracer {
         self.debug_flow(from, atop);
         let tangential_hit = self
             .geometry
-            .line_segment_intersection_target_and_parameter(atop, dir, expected_dist + FLOW_ADHESIVENESS);
+            .line_segment_intersection_target_and_parameter(
+                atop,
+                dir,
+                expected_dist + FLOW_ADHESIVENESS,
+            );
 
         if let Some((hit_tri, t)) = tangential_hit {
             let intersection_point = atop + t * dir;
@@ -329,7 +333,7 @@ mod test {
     extern crate aitios_asset;
 
     use super::*;
-    use geom::{Vec2, Vec3, Vertex, Position, TangentSpace, TupleTriangle as Tri};
+    use geom::{Position, TangentSpace, TupleTriangle as Tri, Vec2, Vec3, Vertex};
     use scene::Mesh;
 
     #[test]
@@ -342,9 +346,7 @@ mod test {
         // Will try to hit first vertex in first entity
         let known_vertex = entities[0].mesh.vertices().next().unwrap().position();
 
-        let tracer = Tracer::new(entities
-            .iter()
-            .flat_map(|ent| ent.mesh.triangles()));
+        let tracer = Tracer::new(entities.iter().flat_map(|ent| ent.mesh.triangles()));
 
         let origin = Vec3::new(0.0, 0.1, 0.2);
         let direction = known_vertex - origin;
@@ -372,9 +374,7 @@ mod test {
 
         let known_vertex = entities[0].mesh.vertices().next().unwrap().position();
 
-        let tracer = Tracer::new(entities
-            .iter()
-            .flat_map(|ent| ent.mesh.triangles()));
+        let tracer = Tracer::new(entities.iter().flat_map(|ent| ent.mesh.triangles()));
 
         let parabola_height = 10.0;
         let bias = 0.2; // The bias is necessary because euler integration is quite inexact, especially with f32
@@ -398,24 +398,41 @@ mod test {
         let hit = tracer.trace_flow(origin, up, flow_direction, 0.4);
         assert!(hit.is_some());
         let hit = hit.unwrap();
-        assert_relative_eq!(Vec3::new(0.0, 0.0, 0.4), hit.intersection_point, epsilon = 0.0001);
+        assert_relative_eq!(
+            Vec3::new(0.0, 0.0, 0.4),
+            hit.intersection_point,
+            epsilon = 0.0001
+        );
 
         let hit = tracer.trace_flow(origin, up, flow_direction, 0.8);
         assert!(hit.is_some());
         let hit = hit.unwrap();
-        assert_relative_eq!(Vec3::new(0.0, 0.0, 0.8), hit.intersection_point, epsilon = 0.0001);
+        assert_relative_eq!(
+            Vec3::new(0.0, 0.0, 0.8),
+            hit.intersection_point,
+            epsilon = 0.0001
+        );
 
         let hit = tracer.trace_flow(origin, up, flow_direction, 0.9);
         assert!(hit.is_some());
         let hit = hit.unwrap();
-        assert_relative_eq!(Vec3::new(0.0, 0.0, 0.9), hit.intersection_point, epsilon = 0.0001);
+        assert_relative_eq!(
+            Vec3::new(0.0, 0.0, 0.9),
+            hit.intersection_point,
+            epsilon = 0.0001
+        );
 
         let hit = tracer.trace_flow(origin, up, flow_direction, 0.99);
         assert!(hit.is_some());
         let hit = hit.unwrap();
-        assert_relative_eq!(Vec3::new(0.0, 0.0, 0.99), hit.intersection_point, epsilon = 0.0001);
+        assert_relative_eq!(
+            Vec3::new(0.0, 0.0, 0.99),
+            hit.intersection_point,
+            epsilon = 0.0001
+        );
 
-        let hit = tracer.trace_flow(origin, up, flow_direction, 1.5)
+        let hit = tracer
+            .trace_flow(origin, up, flow_direction, 1.5)
             .map(|h| h.intersection_point);
         assert_eq!(None, hit);
 
@@ -475,34 +492,30 @@ mod test {
         let left_front = Vertex {
             position: Vec3::new(-1.0, 0.0, 1.0),
             normal: Vec3::new(0.0, 0.0, 1.0),
-            texcoords: Vec2::new(0.0, 0.0)
+            texcoords: Vec2::new(0.0, 0.0),
         };
 
         let right_front = Vertex {
             position: Vec3::new(1.0, 0.0, 1.0),
             normal: Vec3::new(0.0, 0.0, 1.0),
-            texcoords: Vec2::new(1.0, 0.0)
+            texcoords: Vec2::new(1.0, 0.0),
         };
 
         let left_rear = Vertex {
             position: Vec3::new(-1.0, 0.0, -1.0),
             normal: Vec3::new(0.0, 0.0, 1.0),
-            texcoords: Vec2::new(0.0, 1.0)
+            texcoords: Vec2::new(0.0, 1.0),
         };
 
         let right_rear = Vertex {
             position: Vec3::new(1.0, 0.0, -1.0),
             normal: Vec3::new(0.0, 0.0, 1.0),
-            texcoords: Vec2::new(1.0, 1.0)
+            texcoords: Vec2::new(1.0, 1.0),
         };
 
         vec![
-            Tri(
-                left_front.clone(), right_front, right_rear.clone()
-            ),
-            Tri(
-                left_front, right_rear, left_rear
-            ),
+            Tri(left_front.clone(), right_front, right_rear.clone()),
+            Tri(left_front, right_rear, left_rear),
         ]
     }
 }

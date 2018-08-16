@@ -9,11 +9,13 @@ extern crate rand;
 extern crate log;
 extern crate rayon;
 
+mod motion;
 mod sim;
 mod surfel_data;
 mod surfel_rule;
 mod ton;
 mod tracer;
+mod transport;
 
 pub use sim::Simulation;
 pub use surfel_data::SurfelData;
