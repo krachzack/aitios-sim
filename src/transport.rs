@@ -17,14 +17,6 @@ pub fn transport<B: Rule, S: Rule>() -> Transport<B, S> {
     }
 }
 
-pub fn classic_transport() -> Transport<Absorb, Deposit> {
-    transport::<Absorb, Deposit>()
-}
-
-pub fn consistent_transport() -> Transport<AbsorbThenDeposit, AbsorbThenDeposit> {
-    transport::<AbsorbThenDeposit, AbsorbThenDeposit>()
-}
-
 impl<B, S> Transport<B, S>
 where
     B: Rule,

@@ -18,6 +18,7 @@ mod ton;
 mod tracer;
 mod transport;
 
+pub use config::{Config, Transport};
 pub use sim::Simulation;
 pub use surfel_data::SurfelData;
 pub use surfel_rule::SurfelRule;

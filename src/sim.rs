@@ -13,7 +13,6 @@ use surfel_data::SurfelData;
 use surfel_rule::SurfelRule;
 use ton::{FlowDirection, Ton, TonSource};
 use tracer::{Hit, Tracer};
-use transport::{classic_transport, consistent_transport};
 
 type Surface = surf::Surface<Surfel<Vertex, SurfelData>>;
 type Tri = TupleTriangle<Vertex>;
@@ -138,9 +137,9 @@ impl Simulation {
             let (ref mut ton, _, _, _) = hit;
             let surfels = &mut self.surface.samples;
 
-            match self.config.transport {
-                Classic => classic_transport().perform(ton, surfels, interaction_info),
-                Consistent => consistent_transport().perform(ton, surfels, interaction_info),
+            match &self.config.transport {
+                Classic(transport) => transport.perform(ton, surfels, interaction_info),
+                Consistent(transport) => transport.perform(ton, surfels, interaction_info),
             }
         }
 
