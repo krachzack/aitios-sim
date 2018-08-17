@@ -9,6 +9,7 @@ extern crate rand;
 extern crate log;
 extern crate rayon;
 
+mod config;
 mod motion;
 mod sim;
 mod surfel_data;

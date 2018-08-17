@@ -4,7 +4,7 @@ use surf::Surfel;
 use ton::Ton;
 use SurfelData;
 
-/// Encapsulates parameters for substance transport.
+/// Performs substance transport for use in surface contacts.
 pub struct Transport<B, S> {
     bounce: PhantomData<B>,
     settle: PhantomData<S>,
@@ -19,6 +19,10 @@ pub fn transport<B: Rule, S: Rule>() -> Transport<B, S> {
 
 pub fn classic_transport() -> Transport<Absorb, Deposit> {
     transport::<Absorb, Deposit>()
+}
+
+pub fn consistent_transport() -> Transport<AbsorbThenDeposit, AbsorbThenDeposit> {
+    transport::<AbsorbThenDeposit, AbsorbThenDeposit>()
 }
 
 impl<B, S> Transport<B, S>
@@ -72,7 +76,6 @@ impl Rule for Deposit {
     }
 }
 
-/*
 pub struct AbsorbThenDeposit;
 impl Rule for AbsorbThenDeposit {
     fn transport(ton: &mut Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {
@@ -80,7 +83,6 @@ impl Rule for AbsorbThenDeposit {
         deposit(ton, interacting_surfel, count_weight);
     }
 }
-*/
 
 /// Deposits the materials in the ton in the interacting surfel, not mutating
 /// the ton

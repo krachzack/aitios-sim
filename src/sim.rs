@@ -1,3 +1,4 @@
+use config::{Config, Transport::*};
 use geom::prelude::*;
 use geom::{TangentSpace, TupleTriangle, Vec3, Vertex};
 use motion::MotionType;
@@ -5,13 +6,14 @@ use rand;
 use rand::Rng;
 use rayon::prelude::*;
 use sampling::{Uniform, UnitHemisphere};
+use std::default::Default;
 use surf;
 use surf::Surfel;
 use surfel_data::SurfelData;
 use surfel_rule::SurfelRule;
 use ton::{FlowDirection, Ton, TonSource};
 use tracer::{Hit, Tracer};
-use transport::classic_transport;
+use transport::{classic_transport, consistent_transport};
 
 type Surface = surf::Surface<Surfel<Vertex, SurfelData>>;
 type Tri = TupleTriangle<Vertex>;
@@ -20,6 +22,7 @@ type Tri = TupleTriangle<Vertex>;
 const MAX_BOUNCES: usize = 128;
 
 pub struct Simulation {
+    config: Config,
     sources: Vec<TonSource>,
     tracer: Tracer,
     surface: Surface,
@@ -28,7 +31,8 @@ pub struct Simulation {
 }
 
 impl Simulation {
-    pub fn new<I>(
+    pub fn new_with_config<I>(
+        config: Config,
         sources: Vec<TonSource>,
         triangles: I,
         surface: Surface,
@@ -38,11 +42,30 @@ impl Simulation {
         I: IntoIterator<Item = TupleTriangle<Vertex>>,
     {
         Simulation {
+            config,
             sources,
             surface,
             tracer: Tracer::new(triangles),
             surfel_rules,
         }
+    }
+
+    pub fn new<I>(
+        sources: Vec<TonSource>,
+        triangles: I,
+        surface: Surface,
+        surfel_rules: Vec<SurfelRule>,
+    ) -> Self
+    where
+        I: IntoIterator<Item = TupleTriangle<Vertex>>,
+    {
+        Self::new_with_config(
+            Default::default(),
+            sources,
+            triangles,
+            surface,
+            surfel_rules,
+        )
     }
 
     // Advances the simulation by one iteration
@@ -114,7 +137,11 @@ impl Simulation {
         for (hit, interaction_info) in hits.iter_mut().zip(interaction_info.iter()) {
             let (ref mut ton, _, _, _) = hit;
             let surfels = &mut self.surface.samples;
-            classic_transport().perform(ton, surfels, interaction_info);
+
+            match self.config.transport {
+                Classic => classic_transport().perform(ton, surfels, interaction_info),
+                Consistent => consistent_transport().perform(ton, surfels, interaction_info),
+            }
         }
 
         // Move hits to next hit point, if any, and return new hits with settled
