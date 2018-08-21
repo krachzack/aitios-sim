@@ -78,7 +78,7 @@ impl Rule for AbsorbThenDeposit {
 
 /// Deposits the materials in the ton in the interacting surfel, not mutating
 /// the ton
-fn deposit(ton: &Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {
+fn deposit(ton: &mut Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {
     assert_eq!(
         interacting_surfel.substances.len(),
         ton.substances.len(),
@@ -87,7 +87,7 @@ fn deposit(ton: &Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {
 
     let material_transports = interacting_surfel.deposition_rates.iter().zip(
         ton.substances
-            .iter()
+            .iter_mut()
             .zip(interacting_surfel.substances.iter_mut()),
     );
 
@@ -95,6 +95,7 @@ fn deposit(ton: &Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {
         // pickup rate gets equally distributed between all interacting surfels
         let deposition_rate = count_weight * *deposition_rate;
         let transport_amount = deposition_rate * **ton_material;
+        **ton_material = (**ton_material - transport_amount).max(0.0);
         **surfel_material = (**surfel_material + transport_amount).max(0.0);
     }
 }
