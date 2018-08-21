@@ -91,7 +91,7 @@ fn deposit(ton: &mut Ton, interacting_surfel: &mut SurfelData, count_weight: f32
             .zip(interacting_surfel.substances.iter_mut()),
     );
 
-    for (ref deposition_rate, (ref ton_material, ref mut surfel_material)) in material_transports {
+    for (ref deposition_rate, (ref mut ton_material, ref mut surfel_material)) in material_transports {
         // pickup rate gets equally distributed between all interacting surfels
         let deposition_rate = count_weight * *deposition_rate;
         let transport_amount = deposition_rate * **ton_material;
