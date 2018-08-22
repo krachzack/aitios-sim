@@ -76,6 +76,25 @@ impl Rule for AbsorbThenDeposit {
     }
 }
 
+pub struct DepositAll;
+impl Rule for DepositAll {
+    fn transport(ton: &mut Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {
+        deposit_all(ton, interacting_surfel, count_weight);
+    }
+}
+
+fn deposit_all(ton: &mut Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {
+    assert_eq!(
+        interacting_surfel.substances.len(),
+        ton.substances.len(),
+        "Surfel and ton have unequal amount of materials, cannot transport"
+    );
+
+    interacting_surfel.substances.iter_mut()
+        .zip(ton.substances.iter())
+        .for_each(|(s, t)| *s += count_weight * t)
+}
+
 /// Deposits the materials in the ton in the interacting surfel, not mutating
 /// the ton
 fn deposit(ton: &mut Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {

@@ -140,6 +140,7 @@ impl Simulation {
             match &self.config.transport {
                 Classic(transport) => transport.perform(ton, surfels, interaction_info),
                 Consistent(transport) => transport.perform(ton, surfels, interaction_info),
+                Conserving(transport) => transport.perform(ton, surfels, interaction_info),
             }
         }
 
