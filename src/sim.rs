@@ -255,7 +255,12 @@ impl Simulation {
                     (substances[source_substance_idx] - transport_amount).max(0.0);
                 substances[target_substance_idx] =
                     (substances[target_substance_idx] + transport_amount).max(0.0);
-            }
+            },
+
+            &SurfelRule::Deposit {
+                substance_idx,
+                amount
+            } => substances[substance_idx] += amount,
         }
     }
 
