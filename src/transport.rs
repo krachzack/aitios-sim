@@ -56,6 +56,30 @@ pub struct Absorb;
 
 pub struct Deposit;
 
+pub struct Differential;
+
+impl Rule for Differential {
+    fn transport(ton: &mut Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {
+        let to_surf_rates = ton.pickup_rates.iter()
+            .zip(interacting_surfel.deposition_rates.iter())
+            .map(|(t, s)| count_weight * (s - t));
+
+        let substances = ton.substances.iter_mut().zip(interacting_surfel.substances.iter_mut());
+
+        for (rate, (ton, surf)) in to_surf_rates.zip(substances) {
+            if rate > 0.0 {
+                let transfer = *ton * rate;
+                *ton -= transfer;
+                *surf += transfer;
+            } else {
+                let transfer = *surf * -rate;
+                *surf -= transfer;
+                *ton += transfer;
+            }
+        }
+    }
+}
+
 impl Rule for Absorb {
     fn transport(ton: &mut Ton, interacting_surfel: &mut SurfelData, count_weight: f32) {
         absorb(ton, interacting_surfel, count_weight);

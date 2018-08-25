@@ -1,6 +1,6 @@
 use self::Transport::*;
 use std::default::Default;
-use transport::{transport, Absorb, AbsorbThenDeposit, Deposit, DepositAll, Transport as Inner};
+use transport::{transport, Absorb, AbsorbThenDeposit, Deposit, DepositAll, Differential as Diff, Transport as Inner};
 
 /// Specifies when and in which direction substance is transported.
 pub enum Transport {
@@ -10,6 +10,8 @@ pub enum Transport {
     Consistent(Inner<AbsorbThenDeposit, AbsorbThenDeposit>),
     /// Disposes of all substance on settle, otherwise consistent
     Conserving(Inner<AbsorbThenDeposit, DepositAll>),
+    /// Similar to conserving, but direction of transfer only depends on rates, not on current substance amount.
+    Differential(Inner<Diff, Diff>),
 }
 
 impl Transport {
@@ -23,6 +25,10 @@ impl Transport {
 
     pub fn conserving() -> Self {
         Conserving(transport())
+    }
+
+    pub fn differential() -> Self {
+        Differential(transport())
     }
 }
 

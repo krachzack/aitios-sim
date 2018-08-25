@@ -141,6 +141,7 @@ impl Simulation {
                 Classic(transport) => transport.perform(ton, surfels, interaction_info),
                 Consistent(transport) => transport.perform(ton, surfels, interaction_info),
                 Conserving(transport) => transport.perform(ton, surfels, interaction_info),
+                Differential(transport) => transport.perform(ton, surfels, interaction_info),
             }
         }
 
